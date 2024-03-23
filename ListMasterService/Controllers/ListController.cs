@@ -140,16 +140,19 @@ public class ListController : Controller
     }
     
     [HttpGet("get_all_user_lists")]
-    public async Task<ActionResult> GetAllUserLists([FromBody] GetAllUserListsRequest request)
+    public async Task<ActionResult> GetAllUserLists([FromQuery] string user_id)
     {
-        if (request == null) return BadRequest("Пустой запрос");
+        if (user_id == null) return BadRequest("Пустой запрос");
         
         var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
         if (jsonToken == null) return BadRequest();
         var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
-        if (userId != request.UserId.ToString()) return Unauthorized();
+        if (userId != user_id) return Unauthorized();
         
-        var result = await _listsRepository.GetAllUserLists(request);
+        var result = await _listsRepository.GetAllUserLists(new GetAllUserListsRequest()
+        {
+            UserId = new Guid(user_id)
+        });
         if (result == null)
         {
             return BadRequest("Такого пользователя не существует");
