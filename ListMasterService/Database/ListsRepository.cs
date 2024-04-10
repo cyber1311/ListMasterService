@@ -10,7 +10,7 @@ public class ListsRepository : IListsRepository
     private readonly string _connectionString;
     
     private const string InsertIntoListsCommand =
-        @"insert into lists(id, title, elements) VALUES(@Id, @Title, @Elements);";
+        @"insert into lists(id, title, elements, is_shared, owner_id) VALUES(@Id, @Title, @Elements, @IsShared, @OwnerId);";
 
     private const string InsertIntoUsersListsCommand =
         @"insert into users_lists(user_id, list_id) VALUES(@UserId, @ListId);";
@@ -21,11 +21,23 @@ public class ListsRepository : IListsRepository
     private const string DeleteFromUsersListsCommand = 
         @"delete from users_lists where list_id = @ListId and user_id = @UserId;";
     
+    private const string DeleteListFromUsersListsCommand = 
+        @"delete from users_lists where list_id = @ListId;";
+    
+    private const string DeleteShareFromUsersListsCommand = 
+        @"delete from users_lists where user_id <> @UserId and list_id = @ListId;";
+    
+    private const string CancelShareForUserFromUsersListsCommand = 
+        @"delete from users_lists where user_id = @UserId and list_id = @ListId;";
+
     private const string UpdateListTitleCommand = 
         @"update lists set title = @Title where id = @Id;";
     
     private const string UpdateListElementsCommand = 
         @"update lists set elements = @Elements where id = @Id;";
+    
+    private const string UpdateListIsSharedCommand = 
+        @"update lists set is_shared = @IsShared where id = @Id;";
     
     private const string GetIdFromListsCommand =
         @"select id as Id from lists where id = @Id;";
@@ -33,15 +45,27 @@ public class ListsRepository : IListsRepository
     private const string GetIdFromUsersListsCommand =
         @"select user_id as UserId from users_lists where user_id = @UserId and list_id = @ListId;";
 
+    private const string GetListFromUsersListsCommand =
+        @"select id as Id, title as Title, elements as Elements, is_shared as IsShared, owner_id as OwnerId from lists inner join users_lists on lists.id = users_lists.list_id where user_id = @UserId and list_id = @ListId;";
+
     private const string GetListFromListsCommand =
-        @"select id as Id, title as Title, elements as Elements from lists where id = @Id;";
+        @"select id as Id, title as Title, elements as Elements, is_shared as IsShared, owner_id as OwnerId from lists where id = @Id;";
     
     private const string GetUserIdFromUsersListsCommand =
         @"select user_id as UserId from users_lists where user_id = @UserId;";
     
+    private const string GetUserIdFromUsersByEmailCommand =
+        @"select id as UserId from users where email = @Email;";
+
     private const string GetAllUserListsCommand =
-        @"select id as Id, title as Title, elements as Elements from lists inner join users_lists on lists.id = users_lists.list_id where user_id = @UserId;";
+        @"select id as Id, title as Title, elements as Elements, is_shared as IsShared, owner_id as OwnerId from lists inner join users_lists on lists.id = users_lists.list_id where user_id = @UserId;";
     
+    private const string GetIdByOwnerId =
+        @"select id as Id from lists where owner_id = @UserId;";
+
+    private const string GetAllListUsersCommand =
+        @"select id as Id, name as Name, email as Email from users inner join users_lists on users.id = users_lists.user_id where list_id = @ListId;";
+
     public ListsRepository(IConfiguration configuration)
     {
         _connectionString = configuration.GetValue<string>("Database:ConnectionString");
@@ -60,7 +84,9 @@ public class ListsRepository : IListsRepository
                 {
                     @Id = request.Id,
                     @Title = request.Title,
-                    @Elements = request.Elements
+                    @Elements = request.Elements,
+                    @IsShared = request.IsShared,
+                    @OwnerId = request.OwnerId
                 }, transaction: transaction);
 
                 await connection.ExecuteAsync(InsertIntoUsersListsCommand, new
@@ -96,22 +122,87 @@ public class ListsRepository : IListsRepository
                 }, transaction: transaction);
                 if (list != null)
                 {
+                    var newUserId = await connection.QueryFirstOrDefaultAsync<Guid?>(GetUserIdFromUsersByEmailCommand, new
+                    {
+                        @Email=request.NewUserEmail
+                    }, transaction: transaction);
+                    if (newUserId != null)
+                    {
+                        await connection.ExecuteAsync(InsertIntoListsCommand, new
+                        {
+                            @Id = request.NewListId,
+                            @Title = list.Title,
+                            @Elements = list.Elements,
+                            @IsShared = list.IsShared,
+                            @OwnerId = newUserId
+                        }, transaction: transaction);
+
+                        await connection.ExecuteAsync(InsertIntoUsersListsCommand, new
+                        {
+                            @UserId = newUserId,
+                            @ListId = request.NewListId
+                        }, transaction: transaction);
+
+                    }
+                    else
+                    {
+                        statusCode.Code = 404;
+                        statusCode.Message = "Такого пользователя не существует";
+                    }
+                    
+                }
+                else
+                {
+                    statusCode.Code = 404;
+                    statusCode.Message = "Такого списка не существует"; 
+                }
+                
+
+                await transaction.CommitAsync();
+            }
+        }
+        catch (Exception)
+        {
+            statusCode.Code = 500;
+            statusCode.Message = "Operation failed"; 
+        }
+        
+        return statusCode;
+    }
+    
+    public async Task<StatusCode> DuplicateList(ListDuplicateRequest request)
+    {
+        var statusCode = new StatusCode(code: 200, message: "OK");
+        try
+        { 
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            await using (var transaction = await connection.BeginTransactionAsync())
+            {
+                var list = await connection.QueryFirstOrDefaultAsync<List?>(GetListFromListsCommand, new
+                {
+                    @Id=request.ListId
+                }, transaction: transaction);
+                if (list != null)
+                {
                     await connection.ExecuteAsync(InsertIntoListsCommand, new
                     {
                         @Id = request.NewListId,
                         @Title = list.Title,
-                        @Elements = list.Elements
+                        @Elements = list.Elements,
+                        @IsShared = list.IsShared,
+                        @OwnerId = list.OwnerId
                     }, transaction: transaction);
 
                     await connection.ExecuteAsync(InsertIntoUsersListsCommand, new
                     {
-                        @UserId = request.NewUserId,
+                        @UserId = request.UserId,
                         @ListId = request.NewListId
                     }, transaction: transaction);
                 }
                 else
                 {
-                    statusCode.Code = 400;
+                    statusCode.Code = 404;
                     statusCode.Message = "Такого списка не существует"; 
                 }
                 
@@ -138,15 +229,52 @@ public class ListsRepository : IListsRepository
             var existsList = await ExistsListInLists(request.ListId);
             if (existsList)
             {
-                await connection.ExecuteAsync(InsertIntoUsersListsCommand, new
+                var newUserId = await connection.QueryFirstOrDefaultAsync<Guid?>(GetUserIdFromUsersByEmailCommand, new
                 {
-                    @UserId = request.NewUserId,
-                    @ListId = request.ListId
+                    @Email=request.NewUserEmail
                 });
+
+                if (newUserId != null)
+                {
+                    await using (var transaction = await connection.BeginTransactionAsync())
+                    {
+                        var exists = await connection.QueryFirstOrDefaultAsync<Guid?>(GetIdFromUsersListsCommand, new
+                        {
+                            @UserId = newUserId,
+                            @ListId= request.ListId
+                        }, transaction: transaction);
+                        
+                        if (exists == null)
+                        {
+                            await connection.ExecuteAsync(UpdateListIsSharedCommand, new
+                            {
+                                @Id = request.ListId,
+                                @IsShared = true
+                            }, transaction: transaction);
+                    
+                            await connection.ExecuteAsync(InsertIntoUsersListsCommand, new
+                            {
+                                @UserId = newUserId,
+                                @ListId = request.ListId
+                            }, transaction: transaction);
+
+                        }
+
+                            
+                        await transaction.CommitAsync();
+                    }
+
+
+                }
+                else
+                {
+                    statusCode.Code = 404;
+                    statusCode.Message = "Такого пользователя не существует"; 
+                }
             }
             else
             {
-                statusCode.Code = 400;
+                statusCode.Code = 404;
                 statusCode.Message = "Такого списка не существует"; 
             }
         }
@@ -178,16 +306,31 @@ public class ListsRepository : IListsRepository
 
                 if (result != null)
                 {
-                    await connection.ExecuteAsync(DeleteFromUsersListsCommand, new
+                    var isOwner = await connection.QueryFirstOrDefaultAsync<Guid?>(GetIdByOwnerId, new
                     {
                         @UserId = request.UserId,
-                        @ListId = request.Id
                     }, transaction: transaction);
-                    
-                    await connection.ExecuteAsync(DeleteFromListsCommand, new
+                    if (isOwner != null)
                     {
-                        @ListId = request.Id,
-                    }, transaction: transaction);
+                        await connection.ExecuteAsync(DeleteListFromUsersListsCommand, new
+                        {
+                            @ListId = request.Id,
+                        }, transaction: transaction);
+                        
+                        await connection.ExecuteAsync(DeleteFromListsCommand, new
+                        {
+                            @ListId = request.Id,
+                        }, transaction: transaction);
+                    }
+                    else
+                    {
+                        await connection.ExecuteAsync(DeleteFromUsersListsCommand, new
+                        {
+                            @UserId = request.UserId,
+                            @ListId = request.Id
+                        }, transaction: transaction);
+                    }
+                    
                 }
                 
 
@@ -274,6 +417,92 @@ public class ListsRepository : IListsRepository
 
         return statusCode;
     }
+    
+    public async Task<StatusCode> DeleteListShare(DeleteListShareRequest request)
+    {
+        var statusCode = new StatusCode(code: 200, message: "OK");
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            var result = await connection.QueryFirstOrDefaultAsync<Guid?>(GetIdFromListsCommand, new
+            {
+                @Id= request.Id
+            });
+
+            if (result != null)
+            {
+                await using (var transaction = await connection.BeginTransactionAsync())
+                {
+                    await connection.ExecuteAsync(UpdateListIsSharedCommand, new
+                    {
+                        @Id = request.Id,
+                        @IsShared = false
+                    }, transaction: transaction);
+                        
+                    await connection.ExecuteAsync(DeleteShareFromUsersListsCommand, new
+                    {
+                        @UserId = request.UserId,
+                        @ListId = request.Id
+                    }, transaction: transaction);
+
+                    await transaction.CommitAsync();
+                }
+
+               
+            }
+            else
+            {
+                statusCode.Code = 500;
+                statusCode.Message = "Такого списка не существует";
+            }
+            
+        }catch (Exception)
+        {
+            statusCode.Code = 500;
+            statusCode.Message = "Operation failed";
+        }
+        
+
+        return statusCode;
+    }
+
+    public async Task<StatusCode> CancelShareForUser(DeleteListShareRequest request)
+    {
+        var statusCode = new StatusCode(code: 200, message: "OK");
+        try
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            var result = await connection.QueryFirstOrDefaultAsync<Guid?>(GetIdFromListsCommand, new
+            {
+                @Id= request.Id
+            });
+
+            if (result != null)
+            {
+                await connection.ExecuteAsync(CancelShareForUserFromUsersListsCommand, new
+                {
+                    @UserId = request.UserId,
+                    @ListId = request.Id
+                });
+               
+            }
+            else
+            {
+                statusCode.Code = 404;
+                statusCode.Message = "Такого списка не существует";
+            }
+            
+        }catch (Exception)
+        {
+            statusCode.Code = 500;
+            statusCode.Message = "Operation failed";
+        }
+        
+
+        return statusCode;
+    }
 
     public async Task<bool> ExistsListInLists(Guid id)
     {
@@ -293,9 +522,10 @@ public class ListsRepository : IListsRepository
         {
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
-           list = await connection.QueryFirstOrDefaultAsync<List>(GetListFromListsCommand, new
+           list = await connection.QueryFirstOrDefaultAsync<List>(GetListFromUsersListsCommand, new
             {
-                @Id=request.Id
+                @UserId = request.UserId,
+                @ListId = request.Id
             });
         }
         
@@ -313,15 +543,32 @@ public class ListsRepository : IListsRepository
         return result != null;
     }
     
-    public async Task<List<List>?> GetAllUserLists(GetAllUserListsRequest request){
+    public async Task<List<List>?> GetAllUserLists(Guid userId){
         var lists = new List<List>();
-        if (await ExistsListInUsersLists(request.UserId))
+        if (await ExistsListInUsersLists(userId))
         {
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
             var result = await connection.QueryAsync<List>(GetAllUserListsCommand, new
             {
-                @UserId=request.UserId
+                @UserId=userId
+            });
+            lists = result.ToList();
+        }
+        
+        return lists;
+    }
+
+    public async Task<List<ListUser>?> GetAllListUsers(Guid listId)
+    {
+        var lists = new List<ListUser>();
+        if (await ExistsListInLists(listId))
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            var result = await connection.QueryAsync<ListUser>(GetAllListUsersCommand, new
+            {
+                @ListId = listId
             });
             lists = result.ToList();
         }

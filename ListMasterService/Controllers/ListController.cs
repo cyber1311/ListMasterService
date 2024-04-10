@@ -47,6 +47,20 @@ public class ListController : Controller
         return StatusCode(result.Code, result.Message);
     }
     
+    [HttpPost("duplicate_list")]
+    public async Task<ActionResult> DuplicateList([FromBody] ListDuplicateRequest request)
+    {
+        if (request == null) return BadRequest("Пустой запрос");
+        
+        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
+        if (jsonToken == null) return BadRequest();
+        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
+        if (userId != request.UserId.ToString()) return Unauthorized();
+        
+        var result = await _listsRepository.DuplicateList(request);
+        return StatusCode(result.Code, result.Message);
+    }
+    
     [HttpPost("share_list")]
     public async Task<ActionResult> ShareList([FromBody] ListShareRequest request)
     {
@@ -64,9 +78,7 @@ public class ListController : Controller
     [HttpDelete("delete_list")]
     public async Task<ActionResult> DeleteList([FromQuery] string user_id, [FromQuery] string id)
     {
-        Console.WriteLine(user_id);
-        Console.WriteLine(id);
-        if (user_id == null || id == null) return BadRequest("Пустой запрос");
+        if (string.IsNullOrEmpty(user_id) || string.IsNullOrEmpty(id)) return BadRequest("Пустой запрос");
         
         var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
         if (jsonToken == null) return BadRequest();
@@ -78,11 +90,8 @@ public class ListController : Controller
             Id = new Guid(id),
             UserId = new Guid(user_id)
         });
-        if (result.Code == 500)
-        {
-            return BadRequest("Такого списка не существует");
-        }
-        return Ok("Список удален");
+        
+        return StatusCode(result.Code, result.Message);
     }
 
     [HttpPut("update_list_title")]
@@ -96,11 +105,8 @@ public class ListController : Controller
         if (userId != request.UserId.ToString()) return Unauthorized();
         
         var result = await _listsRepository.UpdateListTitle(request);
-        if (result.Code == 500)
-        {
-            return BadRequest("Такого списка не существует");
-        }
-        return Ok("Название списка обновлено");
+        
+        return StatusCode(result.Code, result.Message);
     }
 
     [HttpPut("update_list_elements")]
@@ -114,48 +120,105 @@ public class ListController : Controller
         if (userId != request.UserId.ToString()) return Unauthorized();
         
         var result = await _listsRepository.UpdateListElements(request);
-        if (result.Code == 500)
-        {
-            return BadRequest("Такого списка не существует");
-        }
-        return Ok("Список обновлен");
+        
+        return StatusCode(result.Code, result.Message);
     }
     
-    [HttpGet("get_list")]
-    public async Task<ActionResult> GetList([FromBody] GetListRequest request)
+    [HttpDelete("delete_list_share")]
+    public async Task<ActionResult> DeleteListShare([FromQuery] string user_id, [FromQuery] string list_id)
     {
-        if (request == null) return BadRequest("Пустой запрос");
-        
-        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
-        if (jsonToken == null) return BadRequest();
-        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
-        if (userId != request.UserId.ToString()) return Unauthorized();
-        
-        var result = await _listsRepository.GetList(request);
-        if (result == null)
-        {
-            return BadRequest("Такого списка не существует");
-        }
-        return Ok(result);
-    }
-    
-    [HttpGet("get_all_user_lists")]
-    public async Task<ActionResult> GetAllUserLists([FromQuery] string user_id)
-    {
-        if (user_id == null) return BadRequest("Пустой запрос");
+        if (string.IsNullOrEmpty(user_id) || string.IsNullOrEmpty(list_id)) return BadRequest("Пустой запрос");
         
         var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
         if (jsonToken == null) return BadRequest();
         var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
         if (userId != user_id) return Unauthorized();
         
-        var result = await _listsRepository.GetAllUserLists(new GetAllUserListsRequest()
+        var result = await _listsRepository.DeleteListShare(new DeleteListShareRequest()
         {
+            Id = new Guid(list_id),
             UserId = new Guid(user_id)
         });
+        
+        return StatusCode(result.Code, result.Message);
+    }
+    
+    [HttpDelete("cancel_share_for_user")]
+    public async Task<ActionResult> CancelShareForUser([FromQuery] string owner_id, [FromQuery] string user_id, [FromQuery] string list_id)
+    {
+        if (string.IsNullOrEmpty(user_id) || string.IsNullOrEmpty(list_id) || string.IsNullOrEmpty(owner_id)) return BadRequest("Пустой запрос");
+        
+        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
+        if (jsonToken == null) return BadRequest();
+        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
+        if (userId != owner_id) return Unauthorized();
+        
+        var result = await _listsRepository.CancelShareForUser(new DeleteListShareRequest()
+        {
+            Id = new Guid(list_id),
+            UserId = new Guid(user_id)
+        });
+        
+        return StatusCode(result.Code, result.Message);
+    }
+
+    [HttpGet("get_all_user_lists")]
+    public async Task<ActionResult> GetAllUserLists([FromQuery] string user_id)
+    {
+        if (string.IsNullOrEmpty(user_id)) return BadRequest("Пустой запрос");
+        
+        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
+        if (jsonToken == null) return BadRequest();
+        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
+        if (userId != user_id) return Unauthorized();
+        
+        var result = await _listsRepository.GetAllUserLists(new Guid(user_id));
+        
         if (result == null)
         {
-            return BadRequest("Такого пользователя не существует");
+            return NotFound("Такого пользователя не существует");
+        }
+        return Ok(result);
+    }
+    
+    [HttpGet("get_all_list_users")]
+    public async Task<ActionResult> GetAllListUsers([FromQuery] string user_id, [FromQuery] string list_id)
+    {
+        if (string.IsNullOrEmpty(user_id) || string.IsNullOrEmpty(list_id)) return BadRequest("Пустой запрос");
+        
+        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
+        if (jsonToken == null) return BadRequest();
+        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
+        if (userId != user_id) return Unauthorized();
+        
+        var result = await _listsRepository.GetAllListUsers(new Guid(list_id));
+        
+        if (result == null)
+        {
+            return NotFound("Такого списка не существует");
+        }
+        return Ok(result);
+    }
+    
+    [HttpGet("get_list")]
+    public async Task<ActionResult> GetList([FromQuery] string user_id, [FromQuery] string list_id)
+    {
+        if (string.IsNullOrEmpty(user_id) || string.IsNullOrEmpty(list_id)) return BadRequest("Ошибка запроса");
+        
+        var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
+        if (jsonToken == null) return BadRequest();
+        var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
+        if (userId != user_id) return Unauthorized();
+        
+        var result = await _listsRepository.GetList(new GetListRequest()
+        {
+            Id = new Guid(list_id),
+            UserId = new Guid(user_id)
+        });
+        
+        if (result == null)
+        {
+            return NotFound("Такого списка не существует");
         }
         return Ok(result);
     }

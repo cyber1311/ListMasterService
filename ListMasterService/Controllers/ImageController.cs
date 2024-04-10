@@ -1,11 +1,7 @@
-using System.IdentityModel.Tokens.Jwt;
-using ListMasterService.Models.Images;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ListMasterService.Controllers;
 
-[Authorize]
 [Route("images")]
 public class ImageController : Controller
 {
@@ -14,23 +10,16 @@ public class ImageController : Controller
     }
 
     [HttpPost("upload")]
-    public async Task<IActionResult> Upload(IFormFile image, string userId)
+    public async Task<IActionResult> Upload(IFormFile image)
     {
         try
         {
-            if (userId == null) return BadRequest("Пустой запрос");
             
             if (image == null || image.Length == 0)
             {
                 return BadRequest("Invalid image file");
             }
-            
-            var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
-            if (jsonToken == null) return BadRequest();
-            var user_id = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
-            if (user_id != userId.ToString()) return Unauthorized();
-
-            var path = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", user_id);
+            var path = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
             
             if (!Directory.Exists(path))
             {
@@ -38,7 +27,6 @@ public class ImageController : Controller
             }
             
             var filePath = Path.Combine(path, image.FileName);
-
             using (var stream = new FileStream(filePath, FileMode.Create))
             {
                 await image.CopyToAsync(stream);
@@ -53,18 +41,13 @@ public class ImageController : Controller
     }
     
     [HttpGet("download")]
-    public async Task<IActionResult> Download([FromBody] UploadRequest request)
+    public async Task<IActionResult> Download([FromQuery] string image_name)
     {
         try
         {
-            if (request == null) return BadRequest("Пустой запрос");
-
-            var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
-            if (jsonToken == null) return BadRequest();
-            var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
-            if (userId != request.UserId.ToString()) return Unauthorized();
+            if (image_name is null or "") return BadRequest("Пустой запрос");
             
-            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", userId, request.ImageName);
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", image_name);
 
             if (!System.IO.File.Exists(filePath))
             {
@@ -74,6 +57,31 @@ public class ImageController : Controller
             var imageBytes = await System.IO.File.ReadAllBytesAsync(filePath);
             
             return File(imageBytes, "image/jpeg");
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, $"Internal Server Error: {ex.Message}");
+        }
+    }
+    
+    [HttpDelete("delete")]
+    public IActionResult Delete([FromQuery] string image_name)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(image_name))
+                return BadRequest("Пустой запрос");
+
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", image_name);
+
+            if (!System.IO.File.Exists(filePath))
+            {
+                return NotFound();
+            }
+
+            System.IO.File.Delete(filePath);
+
+            return Ok("Файл удален");
         }
         catch (Exception ex)
         {

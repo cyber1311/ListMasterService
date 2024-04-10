@@ -10,6 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSingleton<IUsersRepository, UsersRepository>();
 builder.Services.AddSingleton<IListsRepository, ListsRepository>();
+builder.Services.AddSingleton<IGroupsRepository, GroupsRepository>();
 builder.Services.AddMvcCore();
 
 builder.Services.AddAuthorization();

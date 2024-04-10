@@ -52,12 +52,14 @@ public class UserController : Controller
     [HttpGet("sign_in")]
     public async Task<ActionResult> SignIn([FromQuery] string email, [FromQuery] string password)
     {
+        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password)) return BadRequest("Пустой запрос");
+
         var existsUser = await _usersRepository.GetUser(new GetUserByEmailRequest()
         {
             Email = email
         });
         if(existsUser.Email == null) return NotFound("Такого пользователя не существует");
-        if(existsUser.Password != password) NotFound("Неверный пароль");
+        if(existsUser.Password != password) Unauthorized("Неверный пароль");
         var claims = new List<Claim> {new Claim(ClaimTypes.Name, existsUser.Id.ToString()) };
        
         var jwt = new JwtSecurityToken(
@@ -78,16 +80,19 @@ public class UserController : Controller
     
     [Authorize]
     [HttpDelete("delete_user")]
-    public async Task<ActionResult> DeleteUser([FromBody] UserDeleteRequest request)
+    public async Task<ActionResult> DeleteUser([FromQuery] string user_id)
     {
-        if (request == null) return BadRequest("Пустой запрос");
+        if (string.IsNullOrEmpty(user_id)) return BadRequest("Пустой запрос");
         
         var jsonToken = new JwtSecurityTokenHandler().ReadToken(HttpContext.Request.Headers["Authorization"].ToString().Replace("Bearer ", "")) as JwtSecurityToken;
         if (jsonToken == null) return BadRequest();
         var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
-        if (userId != request.Id.ToString()) return Unauthorized();
+        if (userId != user_id) return Unauthorized();
         
-        var result = await _usersRepository.DeleteUser(request);
+        var result = await _usersRepository.DeleteUser(new UserDeleteRequest()
+        {
+            Id = new Guid(user_id)
+        });
         return StatusCode(result.Code, result.Message);
     }
     

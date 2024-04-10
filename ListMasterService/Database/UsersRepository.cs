@@ -24,8 +24,14 @@ public class UsersRepository : IUsersRepository
         @"delete from users where id = @Id;";
     
     private const string DeleteFromUsersListsCommand = 
-        @"delete from users_lists where list_id = @ListId and user_id = @UserId;";
-
+        @"delete from users_lists where list_id in (select id from lists where owner_id = @UserId) or user_id = @UserId;";
+    
+    private const string DeleteFromUsersGroupsCommand = 
+        @"delete from users_groups where group_id in (select id from groups where owner_id = @UserId) or user_id = @UserId;";
+    
+    private const string DeleteGroupCommand = 
+        @"delete from groups where owner_id = @OwnerId;";
+    
     private const string UpdateUserNameCommand = 
         @"update users set name = @Name where id = @Id;";
     
@@ -39,7 +45,7 @@ public class UsersRepository : IUsersRepository
         @"select list_id as ListId from users_lists where user_id = @UserId;";
     
     private const string DeleteFromListsCommand = 
-        @"delete from lists where id = @ListId;";
+        @"delete from lists where owner_id = @OwnerId;";
 
 
     public UsersRepository(IConfiguration configuration)
@@ -103,36 +109,32 @@ public class UsersRepository : IUsersRepository
         
             if (user == null)
             {
-                statusCode.Code = 500;
+                statusCode.Code = 404;
                 statusCode.Message = "Такого пользователя не существует";
             }
             else
             {
                 await using (var transaction = await connection.BeginTransactionAsync())
                 {
-
-                    var result = await connection.QueryAsync<Guid>(GetAllUserListsIdCommand, new
+                    
+                    await connection.ExecuteAsync(DeleteFromUsersListsCommand, new
                     {
-                        @UserId=request.Id
+                        @UserId = request.Id
                     }, transaction: transaction);
                     
-                    var listIds = result.ToList();
-                    
-                    foreach (var listId in listIds)
+                    await connection.ExecuteAsync(DeleteFromListsCommand, new
                     {
-                        await connection.ExecuteAsync(DeleteFromUsersListsCommand, new
-                        {
-                            @UserId = request.Id,
-                            @ListId = listId
-                        }, transaction: transaction);
-                        
-                        await connection.ExecuteAsync(DeleteFromListsCommand, new
-                        {
-                            @ListId = listId,
-                        }, transaction: transaction);
-                        
-                        
-                    }
+                        @OwnerId = request.Id,
+                    }, transaction: transaction);
+                    await connection.ExecuteAsync(DeleteFromUsersGroupsCommand, new
+                    {
+                        @UserId = request.Id,
+                    }, transaction: transaction);
+                    
+                    await connection.ExecuteAsync(DeleteGroupCommand, new
+                    {
+                        @OwnerId = request.Id,
+                    }, transaction: transaction);
                     
                     await connection.ExecuteAsync(DeleteFromUsersCommand, new
                     {
