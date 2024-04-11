@@ -13,4 +13,7 @@ public interface IUsersRepository
     Task<User?> GetUser(GetUserByEmailRequest request);
 
     Task<bool> ExistsUser(string email);
+
+    Task<string?> GetUserEmail(Guid userId);
+    Task<List<string>?> GetUserEmails(Guid ownerId, Guid listId);
 }

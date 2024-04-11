@@ -15,6 +15,7 @@ public interface IListsRepository
     
     Task<bool> ExistsListInUsersLists(Guid id);
     Task<List?> GetList(GetListRequest request);
+    Task<string?> GetListTitle(Guid listId);
 
     Task<List<List>?> GetAllUserLists(Guid userId);
     

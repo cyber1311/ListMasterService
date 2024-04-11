@@ -51,6 +51,10 @@ public class ListsRepository : IListsRepository
     private const string GetListFromListsCommand =
         @"select id as Id, title as Title, elements as Elements, is_shared as IsShared, owner_id as OwnerId from lists where id = @Id;";
     
+    private const string GetListTitleCommand =
+        @"select title as Title from lists where id = @Id;";
+
+    
     private const string GetUserIdFromUsersListsCommand =
         @"select user_id as UserId from users_lists where user_id = @UserId;";
     
@@ -530,6 +534,22 @@ public class ListsRepository : IListsRepository
         }
         
         return list;
+    }
+    
+    public async Task<string?> GetListTitle(Guid listId)
+    {
+        string? listTitle = null;
+        if (await ExistsListInLists(listId))
+        {
+            await using var connection = new NpgsqlConnection(_connectionString);
+            await connection.OpenAsync();
+            listTitle = await connection.QueryFirstOrDefaultAsync<string>(GetListTitleCommand, new
+            {
+                @Id = listId
+            });
+        }
+        
+        return listTitle;
     }
 
     public async Task<bool> ExistsListInUsersLists(Guid id)

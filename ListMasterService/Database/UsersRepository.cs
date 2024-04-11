@@ -14,6 +14,14 @@ public class UsersRepository : IUsersRepository
     private const string GetEmailCommand =
         @"select email as Email from users where email = @Email;";
     
+    private const string GetEmailByIdCommand =
+        @"select email as Email from users where id = @Id;";
+    
+    private const string GetEmailsByListIdCommand =
+        @"select email as Email from users
+            inner join users_lists on users.id = users_lists.user_id
+            where list_id = @ListId and user_id <> @OwnerId;";
+    
     private const string GetIdCommand =
         @"select id as Id from users where id = @Id;";
     
@@ -288,4 +296,29 @@ public class UsersRepository : IUsersRepository
         
         return user;
     }
+    
+    public async Task<string?> GetUserEmail(Guid userId)
+    {
+        string? userEmail = null;
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+        userEmail = await connection.QueryFirstOrDefaultAsync<string>(GetEmailByIdCommand, new
+        {
+            @Id=userId
+        });
+        
+        return userEmail;
+    }
+    public async Task<List<string>?> GetUserEmails(Guid ownerId, Guid listId)
+    {
+        await using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
+        var emails = await connection.QueryAsync<string>(GetEmailsByListIdCommand, new
+        {
+            @ListId=listId,
+            @OwnerId=ownerId
+        });
+        return emails.ToList();
+    }
+    
 }

@@ -12,11 +12,13 @@ public class ListController : Controller
 {
     
     private readonly IListsRepository _listsRepository;
+    private readonly IUsersRepository _usersRepository;
 
 
-    public ListController(IListsRepository listsRepository)
+    public ListController(IListsRepository listsRepository, IUsersRepository usersRepository)
     {
         _listsRepository = listsRepository;
+        _usersRepository = usersRepository;
     }
     
     [HttpPost("add_list")]
@@ -44,6 +46,16 @@ public class ListController : Controller
         if (userId != request.UserOwnerId.ToString()) return Unauthorized();
         
         var result = await _listsRepository.CopyList(request);
+        if (result.Code == 200)
+        {
+            var listTitle = await _listsRepository.GetListTitle(request.ListId);
+            if (listTitle != null)
+            {
+                Email.Send(request.NewUserEmail, "Новый список",
+                    $"С вами поделились копией списка - \"{listTitle}\"");
+            }
+
+        }
         return StatusCode(result.Code, result.Message);
     }
     
@@ -72,6 +84,19 @@ public class ListController : Controller
         if (userId != request.UserOwnerId.ToString()) return Unauthorized();
         
         var result = await _listsRepository.ShareList(request);
+
+        if (result.Code == 200)
+        {
+            var listTitle = await _listsRepository.GetListTitle(request.ListId);
+            if (listTitle != null)
+            {
+                Email.Send(request.NewUserEmail, "Новый список",
+                    $"Вам открыт доступ к новому списку - \"{listTitle}\"");
+            }
+
+        }
+
+            
         return StatusCode(result.Code, result.Message);
     }
     
@@ -133,12 +158,28 @@ public class ListController : Controller
         if (jsonToken == null) return BadRequest();
         var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
         if (userId != user_id) return Unauthorized();
-        
+        var emails = await _usersRepository.GetUserEmails(new Guid(user_id), new Guid(list_id));
+
         var result = await _listsRepository.DeleteListShare(new DeleteListShareRequest()
         {
             Id = new Guid(list_id),
             UserId = new Guid(user_id)
         });
+
+        if (result.Code == 200)
+        {
+            var listTitle = await _listsRepository.GetListTitle(new Guid(list_id));
+        
+            if (emails != null && listTitle != null)
+            {
+                foreach (var email in emails)
+                {
+                    Email.Send(email, "Отключен доступ к списку",
+                        $"Вам закрыт доступ к списку - \"{listTitle}\"");
+                }
+            }
+
+        }
         
         return StatusCode(result.Code, result.Message);
     }
@@ -152,12 +193,23 @@ public class ListController : Controller
         if (jsonToken == null) return BadRequest();
         var userId = jsonToken.Claims.FirstOrDefault(c => c.Type == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")?.Value;
         if (userId != owner_id) return Unauthorized();
-        
         var result = await _listsRepository.CancelShareForUser(new DeleteListShareRequest()
         {
             Id = new Guid(list_id),
             UserId = new Guid(user_id)
         });
+
+        if (result.Code == 200)
+        {
+            var listTitle = await _listsRepository.GetListTitle(new Guid(list_id));
+            var userEmail = await _usersRepository.GetUserEmail(new Guid(user_id));
+        
+            if (userEmail != null && listTitle != null)
+            {
+                Email.Send(userEmail, "Отключен доступ к списку",
+                    $"Вам закрыт доступ к списку - \"{listTitle}\"");
+            }
+        }
         
         return StatusCode(result.Code, result.Message);
     }
