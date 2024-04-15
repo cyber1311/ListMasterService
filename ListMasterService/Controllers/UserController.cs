@@ -21,7 +21,7 @@ public class UserController : Controller
         _usersRepository = usersRepository;
     }
 
-    [HttpGet("validate_email")]
+    [HttpGet("email_verification")]
     public async Task<ActionResult> ValidateEmail([FromQuery] string email)
     {
         if (string.IsNullOrWhiteSpace(email)) return BadRequest("Пустой запрос");
